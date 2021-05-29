@@ -7,7 +7,7 @@ library(plotly)
 library(survival)
 library(survminer)
 
-#para as tabelas (não deu certo esses pacotes):
+#para as tabelas:
 library(sjPlot)
 library(sjmisc)
 library(sjlabelled)
@@ -17,22 +17,14 @@ setwd("C:/Users/gabriela.rech/Desktop/tcc")
 dados <- read.csv2("INFLUD-05-04-2021.csv", sep = ";")
 
 #FILTRANDO SÓ QUEM TEVE COVID:
-dados_covid <- dados %>% filter(CLASSI_FIN == 5)
+dados_covid <- dados %>% filter(dados$CLASSI_FIN == 5)
 
-#FILTRANDO QUEM TEM IDADE MAIOR OU IGUAL A 18 ANOS:
-dados_covid <- dados_covid %>%
-  filter(NU_IDADE_N >= 18)
-
-#FILTRANDO QUEM NÃO ERA GESTANTE: 
-dados_covid <- dados_covid %>%
-  filter(dados_covid$CS_GESTANT != 1 & dados_covid$CS_GESTANT != 2 & dados_covid$CS_GESTANT != 3 & dados_covid$CS_GESTANT != 4)
-
-###Quanto as análises, eu sugiro verificar como ficam os modelos fazendo o 
-#seguinte filtro: excluir gestante, excluir menores de 18 anos, 
-#excluir quem tem missing em qualquer uma das variáveis utilizadas
+# Quantidade de indivíduos hospitalizados:
+table(dados_covid$HOSPITAL, useNA = "always")
+round(prop.table(table(dados_covid$HOSPITAL)), 4)*100
 
 #RECATEGORIZAÇÕES:
-dados_covid$idade[dados_covid$NU_IDADE_N >= 18 & dados_covid$NU_IDADE_N < 59] <- 0
+dados_covid$idade[dados_covid$NU_IDADE_N <= 59] <- 0
 dados_covid$idade[dados_covid$NU_IDADE_N >= 60 & dados_covid$NU_IDADE_N <= 79] <- 1
 dados_covid$idade[dados_covid$NU_IDADE_N >= 80] <- 2
 
@@ -42,8 +34,9 @@ dados_covid$escol[dados_covid$CS_ESCOL_N == 3] <- 2 #ensino medio
 dados_covid$escol[dados_covid$CS_ESCOL_N == 4] <- 3 #ensino superior
 dados_covid$escol[dados_covid$CS_ESCOL_N == 9] <- NA #ignorado será missing
 
-dados_covid$sexo[dados_covid$CS_SEXO == "F"] <- 0 #explicar que crianças estão incluidas aqui
-dados_covid$sexo[dados_covid$CS_SEXO == "M"] <- 1
+dados_covid$sexo[dados_covid$CS_SEXO == "F"] <- 1 #explicar que crianças estão incluidas aqui
+dados_covid$sexo[dados_covid$CS_GESTANT == 1 | dados_covid$CS_GESTANT == 2 | dados_covid$CS_GESTANT == 3 | dados_covid$CS_GESTANT == 4] <- 2
+dados_covid$sexo[dados_covid$CS_SEXO == "M"] <- 3
 dados_covid$sexo[dados_covid$CS_SEXO == "I"] <- NA
 
 dados_covid$diabetes[dados_covid$DIABETES == 2] <- 0
@@ -139,12 +132,6 @@ dados_covid$status_obito[dados_covid$EVOLUCAO == 1 | dados_covid$EVOLUCAO == 3] 
 
 dados_covid <- dados_covid %>% filter(tempo_prim_sin_obito1 >= 0)
 
-p1 = ggplot(data = dados_covid) + 
-  geom_histogram(aes(x = tempo_prim_sin_obito1), fill = "#3690c0", color = "white", show.legend = FALSE) + 
-  labs(title = "Tempo desde 1º sintoma até evolução (em dias)", y = "Frequência", x = "Diferença entre a data de evolução e a data do 1º sintoma") +
-  scale_x_continuous(limits=c(0, 60)) + theme_bw() 
-p1
-
 dados_covid$obito <- ifelse(dados_covid$EVOLUCAO == 2, 1, 0)
 
 p3 = ggplot(data = dados_covid, aes(x = factor(SEM_PRI), y = obito)) + 
@@ -156,14 +143,10 @@ p3
 fit <- survfit(Surv(tempo_prim_sin_obito1, status_obito) ~ 1, data = dados_covid)
 ggsurvplot(fit, conf.int = T, palette = "#225ea8", ggtheme = theme_bw(), data = dados_covid)
 
-dados_covid <- dados_covid %>%
-  filter(!is.na(SG_UF_NOT) & !is.na(idade) & !is.na(escol) & !is.na(sexo) & !is.na(diabetes) &
-          !is.na(hematologi) & !is.na(down) & !is.na(hepatica) & !is.na(neurologic) &
-           !is.na(imunodepre) & !is.na(obesidade) & !is.na(cardiopati) & !is.na(renal) &
-           !is.na(asma) & !is.na(raca) & !is.na(suport) & !is.na(uti) & !is.na(ciclos))
-
+#quantile(fit, probs = c(0.25, 0.5, 0.75))
 
 # MODELO 1: APENAS COM OS FATORES DE RISCO: ESTADO, ESCOLARIDADE, IDADE E SEXO:
+
 dados_covid$SG_UF_NOT <- as.factor(dados_covid$SG_UF_NOT) 
 dados_covid$escol <- as.factor(dados_covid$escol)
 dados_covid$idade <- as.factor(dados_covid$idade)
@@ -174,6 +157,7 @@ dados_covid <- within(dados_covid, SG_UF_NOT <- relevel(SG_UF_NOT, ref = "SP"))
 
 modelo1 = coxph(Surv(tempo_prim_sin_obito1,status_obito)~SG_UF_NOT + escol + idade + sexo + raca, data=dados_covid, x=T)
 summary(modelo1)
+ggforest(modelo1) 
 
 library(forestmodel)
 forest_model(modelo1, covariates = c("escol", "idade", "sexo", "raca"))
@@ -185,6 +169,12 @@ tabela <- cox_as_data_frame(summary(modelo1))
 tabela2 <- tabela[,-1]
 
 write.csv(tabela2,"tabela2.csv")
+
+library(finalfit)
+#explanatory = c("SG_UF_NOT", "escol_cat", "idade_cat", "sexo_cat", "raca_cat", "gestant_cat")
+#dependent = "Surv(tempo_prim_sin_obito1,status_obito)"
+#dados_covid %>%
+#  hr_plot(dependent, explanatory, dependent_label = "Survival")
 
 # MODELO 2: FATORES DE RISCO PARA ACRESCENTAR: Diabetes Mellitus; Doença hematológica crônica; 
 #Síndrome de Down; Doença hepática crônica; Distúrbios neurológicos; 
@@ -204,7 +194,7 @@ dados_covid$cardiopati <- as.factor(dados_covid$cardiopati)
 dados_covid$renal <- as.factor(dados_covid$renal) 
 dados_covid$asma <- as.factor(dados_covid$asma) 
 
-modelo2 = coxph(Surv(tempo_prim_sin_obito1,status_obito)~SG_UF_NOT + escol + idade + sexo +
+modelo2 = coxph(Surv(tempo_prim_sin_obito1,status_obito)~SG_UF_NOT + escol + idade + sexo + raca +
             diabetes + hematologi + down + hepatica + neurologic + imunodepre + obesidade + 
               pneumopati + cardiopati + renal + asma, data=dados_covid, x=T)
 summary(modelo2)
@@ -226,7 +216,7 @@ dados_covid$suport <- as.factor(dados_covid$suport)
 dados_covid$uti <- as.factor(dados_covid$uti)
 dados_covid$ciclos <- as.factor(dados_covid$ciclos)
 
-modelo3 = coxph(Surv(tempo_prim_sin_obito1,status_obito)~SG_UF_NOT + escol + idade + sexo +
+modelo3 = coxph(Surv(tempo_prim_sin_obito1,status_obito)~SG_UF_NOT + escol + idade + sexo + raca +
                   diabetes + hematologi + hepatica + neurologic + imunodepre + obesidade + 
                   pneumopati + renal + asma +
                   suport + uti + ciclos, data=dados_covid, x=T)
@@ -262,15 +252,23 @@ write.table(nomes, file="clipboard-16384", sep="\t", col.names=NA, dec = ".")
 #Escolaridade:
 tabela_escol <- table(dados_covid$escol_cat)
 tabela_escol_prop <- round((prop.table(tabela_escol))*100, 2)
-sum(is.na(dados_covid$escol))
+sum(is.na(dados_covid$escol_cat))
 
 tabela <- paste0(tabela_escol, " (", tabela_escol_prop, ")")
+write.table(tabela, file="clipboard-16384", sep="\t", col.names=NA, dec = ".")
+
+#Gestante:
+tabela_gestan <- table(dados_covid$gestant_cat)
+tabela_gestan_prop <- round((prop.table(tabela_gestan))*100, 2)
+sum(is.na(dados_covid$gestant_cat))
+
+tabela <- paste0(tabela_gestan, " (", tabela_gestan_prop, ")")
 write.table(tabela, file="clipboard-16384", sep="\t", col.names=NA, dec = ".")
 
 #Raça/cor:
 tabela_raca <- table(dados_covid$raca_cat)
 tabela_raca_prop <- round((prop.table(tabela_raca))*100, 2)
-sum(is.na(dados_covid$raca))
+sum(is.na(dados_covid$raca_cat))
 
 tabela <- paste0(tabela_raca, " (", tabela_raca_prop, ")")
 write.table(tabela, file="clipboard-16384", sep="\t", col.names=NA, dec = ".")
@@ -278,56 +276,63 @@ write.table(tabela, file="clipboard-16384", sep="\t", col.names=NA, dec = ".")
 #Sexo:
 tabela_sexo <- table(dados_covid$sexo_cat)
 tabela_sexo_prop <- round((prop.table(tabela_sexo))*100, 2)
-sum(is.na(dados_covid$sexo))
+sum(is.na(dados_covid$sexo_cat))
 
 sexo_gest <- paste0(tabela_sexo, " (", tabela_sexo_prop, ")")
 
 #Diabetes Mellitus: #1 = sim; 2 = não; 9 = ignorado
 tabela_diabete <- table(dados_covid$diabetes_cat)
 tabela_diabete_prop <- round((prop.table(tabela_diabete))*100, 2)
-sum(is.na(dados_covid$diabetes)) 
+sum(is.na(dados_covid$diabetes_cat)) 
 
 diabetes <- paste0(tabela_diabete[2], " (", tabela_diabete_prop[2], ")")
 
 #Obesidade grave: #1 = sim; 2 = não; 9 = ignorado
 tabela_obesidade <- table(dados_covid$obesidade_cat)
 tabela_obesidade_prop <- round((prop.table(tabela_obesidade))*100, 2)
-sum(is.na(dados_covid$obesidade))
+sum(is.na(dados_covid$obesidade_cat))
 
 obesidade <- paste0(tabela_obesidade[2], " (", tabela_obesidade_prop[2], ")")
 
 #Doença respiratória: #1 = sim; 2 = não; 9 = ignorado
 tabela_resp <- table(dados_covid$pneumopati_cat)
 tabela_resp_prop <- round((prop.table(tabela_resp))*100, 2)
-sum(is.na(dados_covid$pneumopati)) 
+sum(is.na(dados_covid$pneumopati_cat)) 
 
 resp <- paste0(tabela_resp[2], " (", tabela_resp_prop[2], ")")
 
 #Doença cardiovascular: #1 = sim; 2 = não; 9 = ignorado
 tabela_cardio <- table(dados_covid$cardiopati_cat)
 tabela_cardio_prop <- round((prop.table(tabela_cardio))*100, 2)
-sum(is.na(dados_covid$cardiopati))
+sum(is.na(dados_covid$cardiopati_cat))
 
 cardio <- paste0(tabela_cardio[2], " (", tabela_cardio_prop[2], ")")
+
+#Púerpera: #1 = sim; 2 = não; 9 = ignorado
+tabela_puerp <- table(dados_covid$PUERPERA)
+tabela_puerp_prop <- round((prop.table(tabela_puerp))*100, 2)
+sum(is.na(dados_covid$PUERPERA))
+
+puerp <- paste0(tabela_puerp[1], " (", tabela_puerp_prop[1], ")")
 
 #Doença hematológica crônica: #1 = sim; 2 = não; 9 = ignorado
 tabela_hemat <- table(dados_covid$hematologi_cat)
 tabela_hemat_prop <- round((prop.table(tabela_hemat))*100, 2)
-sum(is.na(dados_covid$hematologi))
+sum(is.na(dados_covid$hematologi_cat))
 
 hemat <- paste0(tabela_hemat[2], " (", tabela_hemat_prop[2], ")")
 
 #Síndrome de Down: #1 = sim; 2 = não; 9 = ignorado
 tabela_down <- table(dados_covid$down_cat)
 tabela_down_prop <- round((prop.table(tabela_down))*100, 2)
-sum(is.na(dados_covid$down))
+sum(is.na(dados_covid$down_cat))
 
 down <- paste0(tabela_down[2], " (", tabela_down_prop[2], ")")
 
 #Doença hepáica crônica: #1 = sim; 2 = não; 9 = ignorado
 tabela_hepat <- table(dados_covid$hepatica_cat)
 tabela_hepat_prop <- round((prop.table(tabela_hepat))*100, 2)
-sum(is.na(dados_covid$hepatica))
+sum(is.na(dados_covid$hepatica_cat))
 
 hepat <- paste0(tabela_hepat[2], " (", tabela_hepat_prop[2], ")")
 
