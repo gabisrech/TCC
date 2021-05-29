@@ -1,0 +1,398 @@
+### TCC:
+
+library(ggplot2)
+library(lubridate)
+library(dplyr)
+library(plotly)
+library(survival)
+library(survminer)
+
+#para as tabelas (não deu certo esses pacotes):
+library(sjPlot)
+library(sjmisc)
+library(sjlabelled)
+
+#setwd("D:/TCC")
+setwd("C:/Users/gabriela.rech/Desktop/tcc")
+dados <- read.csv2("INFLUD-05-04-2021.csv", sep = ";")
+
+#FILTRANDO SÓ QUEM TEVE COVID:
+dados_covid <- dados %>% filter(CLASSI_FIN == 5)
+
+#FILTRANDO QUEM TEM IDADE MAIOR OU IGUAL A 18 ANOS:
+dados_covid <- dados_covid %>%
+  filter(NU_IDADE_N >= 18)
+
+#FILTRANDO QUEM NÃO ERA GESTANTE: 
+dados_covid <- dados_covid %>%
+  filter(dados_covid$CS_GESTANT != 1 & dados_covid$CS_GESTANT != 2 & dados_covid$CS_GESTANT != 3 & dados_covid$CS_GESTANT != 4)
+
+###Quanto as análises, eu sugiro verificar como ficam os modelos fazendo o 
+#seguinte filtro: excluir gestante, excluir menores de 18 anos, 
+#excluir quem tem missing em qualquer uma das variáveis utilizadas
+
+#RECATEGORIZAÇÕES:
+dados_covid$idade[dados_covid$NU_IDADE_N >= 18 & dados_covid$NU_IDADE_N < 59] <- 0
+dados_covid$idade[dados_covid$NU_IDADE_N >= 60 & dados_covid$NU_IDADE_N <= 79] <- 1
+dados_covid$idade[dados_covid$NU_IDADE_N >= 80] <- 2
+
+dados_covid$escol[dados_covid$CS_ESCOL_N == 0 | dados_covid$CS_ESCOL_N == 5] <- 0 #sem escolaridade
+dados_covid$escol[dados_covid$CS_ESCOL_N == 1 | dados_covid$CS_ESCOL_N == 2] <- 1 #ensino fundamental
+dados_covid$escol[dados_covid$CS_ESCOL_N == 3] <- 2 #ensino medio
+dados_covid$escol[dados_covid$CS_ESCOL_N == 4] <- 3 #ensino superior
+dados_covid$escol[dados_covid$CS_ESCOL_N == 9] <- NA #ignorado será missing
+
+dados_covid$sexo[dados_covid$CS_SEXO == "F"] <- 0 #explicar que crianças estão incluidas aqui
+dados_covid$sexo[dados_covid$CS_SEXO == "M"] <- 1
+dados_covid$sexo[dados_covid$CS_SEXO == "I"] <- NA
+
+dados_covid$diabetes[dados_covid$DIABETES == 2] <- 0
+dados_covid$diabetes[dados_covid$DIABETES == 1] <- 1
+dados_covid$diabetes[dados_covid$DIABETES == 9] <- NA
+
+dados_covid$hematologi[dados_covid$HEMATOLOGI == 2] <- 0
+dados_covid$hematologi[dados_covid$HEMATOLOGI == 1] <- 1
+dados_covid$hematologi[dados_covid$HEMATOLOGI == 9] <- NA
+
+dados_covid$down[dados_covid$SIND_DOWN == 2] <- 0
+dados_covid$down[dados_covid$SIND_DOWN == 1] <- 1
+dados_covid$down[dados_covid$SIND_DOWN == 9] <- NA
+
+dados_covid$hepatica[dados_covid$HEPATICA == 2] <- 0
+dados_covid$hepatica[dados_covid$HEPATICA == 1] <- 1
+dados_covid$hepatica[dados_covid$HEPATICA == 9] <- NA
+
+dados_covid$neurologic[dados_covid$NEUROLOGIC == 2] <- 0
+dados_covid$neurologic[dados_covid$NEUROLOGIC == 1] <- 1
+dados_covid$neurologic[dados_covid$NEUROLOGIC == 9] <- NA
+
+dados_covid$imunodepre[dados_covid$IMUNODEPRE == 2] <- 0
+dados_covid$imunodepre[dados_covid$IMUNODEPRE == 1] <- 1
+dados_covid$imunodepre[dados_covid$IMUNODEPRE == 9] <- NA
+
+dados_covid$obesidade[dados_covid$OBESIDADE == 2] <- 0
+dados_covid$obesidade[dados_covid$OBESIDADE == 1] <- 1
+dados_covid$obesidade[dados_covid$OBESIDADE == 9] <- NA
+
+dados_covid$pneumopati[dados_covid$PNEUMOPATI == 2] <- 0
+dados_covid$pneumopati[dados_covid$PNEUMOPATI == 1] <- 1
+dados_covid$pneumopati[dados_covid$PNEUMOPATI == 9] <- NA
+
+dados_covid$cardiopati[dados_covid$CARDIOPATI == 2] <- 0
+dados_covid$cardiopati[dados_covid$CARDIOPATI == 1] <- 1
+dados_covid$cardiopati[dados_covid$CARDIOPATI == 9] <- NA
+
+dados_covid$renal[dados_covid$RENAL == 2] <- 0
+dados_covid$renal[dados_covid$RENAL == 1] <- 1
+dados_covid$renal[dados_covid$RENAL == 9] <- NA
+
+dados_covid$asma[dados_covid$ASMA == 2] <- 0
+dados_covid$asma[dados_covid$ASMA == 1] <- 1
+dados_covid$asma[dados_covid$ASMA == 9] <- NA
+
+dados_covid$raca[dados_covid$CS_RACA == 1] <- 0 #branca
+dados_covid$raca[dados_covid$CS_RACA == 2 | dados_covid$CS_RACA == 3 | dados_covid$CS_RACA == 4 | dados_covid$CS_RACA == 5] <- 1 #não branco
+dados_covid$raca[dados_covid$CS_RACA == 9] <- NA
+
+dados_covid$suport[dados_covid$SUPORT_VEN == 3] <- 0 #nao recebeu
+dados_covid$suport[dados_covid$SUPORT_VEN == 1] <- 1 #sim, invasivo
+dados_covid$suport[dados_covid$SUPORT_VEN == 2] <- 2 #sim, não invasivo
+dados_covid$suport[dados_covid$HOSPITAL == 2] <- 0 #nao foi hospitalizado
+
+dados_covid$uti[dados_covid$UTI == 2] <- 0 #não
+dados_covid$uti[dados_covid$UTI == 1] <- 1 #sim
+dados_covid$uti[dados_covid$HOSPITAL == 2] <- 0 #não hospitalizado
+
+dados_covid$ciclos[dados_covid$SEM_PRI == 8 | dados_covid$SEM_PRI == 9 | dados_covid$SEM_PRI == 10 |
+                     dados_covid$SEM_PRI == 11 | dados_covid$SEM_PRI == 12 | dados_covid$SEM_PRI == 13 |
+                     dados_covid$SEM_PRI == 14 | dados_covid$SEM_PRI == 15 | dados_covid$SEM_PRI == 16 |
+                     dados_covid$SEM_PRI == 17 | dados_covid$SEM_PRI == 18 | dados_covid$SEM_PRI == 19 |
+                     dados_covid$SEM_PRI == 20 | dados_covid$SEM_PRI == 21 | dados_covid$SEM_PRI == 22] <- "ciclo_1"
+
+dados_covid$ciclos[dados_covid$SEM_PRI == 23 | dados_covid$SEM_PRI == 24 | dados_covid$SEM_PRI == 25 |
+                     dados_covid$SEM_PRI == 26 | dados_covid$SEM_PRI == 27 | dados_covid$SEM_PRI == 28 |
+                     dados_covid$SEM_PRI == 29 | dados_covid$SEM_PRI == 30 | dados_covid$SEM_PRI == 31 |
+                     dados_covid$SEM_PRI == 32 | dados_covid$SEM_PRI == 33 | dados_covid$SEM_PRI == 34 |
+                     dados_covid$SEM_PRI == 35] <- "ciclo_2"
+
+dados_covid$ciclos[dados_covid$SEM_PRI == 36 | dados_covid$SEM_PRI == 37 | dados_covid$SEM_PRI == 38 |
+                     dados_covid$SEM_PRI == 39 | dados_covid$SEM_PRI == 40 | dados_covid$SEM_PRI == 41 |
+                     dados_covid$SEM_PRI == 42 | dados_covid$SEM_PRI == 43 | dados_covid$SEM_PRI == 44 |
+                     dados_covid$SEM_PRI == 45 | dados_covid$SEM_PRI == 46 | dados_covid$SEM_PRI == 47 |
+                     dados_covid$SEM_PRI == 48] <- "ciclo_3"
+
+dados_covid$ciclos[dados_covid$SEM_PRI >= 49] <- "ciclo_4"
+
+dados_covid$DT_SIN_PRI_data <- dmy(dados_covid$DT_SIN_PRI)
+dados_covid$DT_EVOLUCA_data <- dmy(dados_covid$DT_EVOLUCA)
+
+#CALCULANDO O TEMPO ATÉ ÓBITO:
+##para tempo até óbito - os censurados são quem não foi a óbito, aí usar a data da evolução (que deve ser a data da alta)
+dados_covid <- dados_covid %>% filter(DT_EVOLUCA_data < "2021-04-07") 
+dados_covid <- dados_covid %>% filter(DT_SIN_PRI_data < "2021-04-07")
+
+dados_covid$tempo_prim_sin_obito <- difftime(dados_covid$DT_EVOLUCA_data, dados_covid$DT_SIN_PRI_data, units = "days")
+dados_covid$tempo_prim_sin_obito1 <- round(as.numeric(dados_covid$tempo_prim_sin_obito), 2)
+
+dados_covid$status_obito[dados_covid$EVOLUCAO == 2] <- 1 
+dados_covid$status_obito[dados_covid$EVOLUCAO == 1 | dados_covid$EVOLUCAO == 3] <- 0
+
+dados_covid <- dados_covid %>% filter(tempo_prim_sin_obito1 >= 0)
+
+p1 = ggplot(data = dados_covid) + 
+  geom_histogram(aes(x = tempo_prim_sin_obito1), fill = "#3690c0", color = "white", show.legend = FALSE) + 
+  labs(title = "Tempo desde 1º sintoma até evolução (em dias)", y = "Frequência", x = "Diferença entre a data de evolução e a data do 1º sintoma") +
+  scale_x_continuous(limits=c(0, 60)) + theme_bw() 
+p1
+
+dados_covid$obito <- ifelse(dados_covid$EVOLUCAO == 2, 1, 0)
+
+p3 = ggplot(data = dados_covid, aes(x = factor(SEM_PRI), y = obito)) + 
+  geom_bar(stat = "identity", fill = "#6a51a3", show.legend = FALSE) +
+  labs(title = "Semana Epidemiológica dos Primeiros Sintomas", y = "Frequência") +
+  scale_x_discrete(name = "Semana Epidemiológica dos Primeiros Sintomas")+ theme_bw() 
+p3
+
+fit <- survfit(Surv(tempo_prim_sin_obito1, status_obito) ~ 1, data = dados_covid)
+ggsurvplot(fit, conf.int = T, palette = "#225ea8", ggtheme = theme_bw(), data = dados_covid)
+
+dados_covid <- dados_covid %>%
+  filter(!is.na(SG_UF_NOT) & !is.na(idade) & !is.na(escol) & !is.na(sexo) & !is.na(diabetes) &
+          !is.na(hematologi) & !is.na(down) & !is.na(hepatica) & !is.na(neurologic) &
+           !is.na(imunodepre) & !is.na(obesidade) & !is.na(cardiopati) & !is.na(renal) &
+           !is.na(asma) & !is.na(raca) & !is.na(suport) & !is.na(uti) & !is.na(ciclos))
+
+
+# MODELO 1: APENAS COM OS FATORES DE RISCO: ESTADO, ESCOLARIDADE, IDADE E SEXO:
+dados_covid$SG_UF_NOT <- as.factor(dados_covid$SG_UF_NOT) 
+dados_covid$escol <- as.factor(dados_covid$escol)
+dados_covid$idade <- as.factor(dados_covid$idade)
+dados_covid$sexo <- as.factor(dados_covid$sexo)
+dados_covid$raca <- as.factor(dados_covid$raca)
+
+dados_covid <- within(dados_covid, SG_UF_NOT <- relevel(SG_UF_NOT, ref = "SP"))
+
+modelo1 = coxph(Surv(tempo_prim_sin_obito1,status_obito)~SG_UF_NOT + escol + idade + sexo + raca, data=dados_covid, x=T)
+summary(modelo1)
+
+library(forestmodel)
+forest_model(modelo1, covariates = c("escol", "idade", "sexo", "raca"))
+
+tab_model(modelo1)
+
+require(survivalAnalysis)
+tabela <- cox_as_data_frame(summary(modelo1))
+tabela2 <- tabela[,-1]
+
+write.csv(tabela2,"tabela2.csv")
+
+# MODELO 2: FATORES DE RISCO PARA ACRESCENTAR: Diabetes Mellitus; Doença hematológica crônica; 
+#Síndrome de Down; Doença hepática crônica; Distúrbios neurológicos; 
+#Imunocomprometimento (tumor sólido, malignidade hematológica, doenças reumatóides ou transplante de órgãos);
+#Hipertensão; Obesidade grave;  Doença respiratória; Doenças cardiovasculares; 
+#Doença renal crônica; Asma; 
+
+dados_covid$diabetes <- as.factor(dados_covid$diabetes)
+dados_covid$hematologi <- as.factor(dados_covid$hematologi)   
+dados_covid$down <- as.factor(dados_covid$down) 
+dados_covid$hepatica <- as.factor(dados_covid$hepatica) 
+dados_covid$neurologic <- as.factor(dados_covid$neurologic) 
+dados_covid$imunodepre <- as.factor(dados_covid$imunodepre) 
+dados_covid$obesidade <- as.factor(dados_covid$obesidade) 
+dados_covid$pneumopati <- as.factor(dados_covid$pneumopati) 
+dados_covid$cardiopati <- as.factor(dados_covid$cardiopati) 
+dados_covid$renal <- as.factor(dados_covid$renal) 
+dados_covid$asma <- as.factor(dados_covid$asma) 
+
+modelo2 = coxph(Surv(tempo_prim_sin_obito1,status_obito)~SG_UF_NOT + escol + idade + sexo +
+            diabetes + hematologi + down + hepatica + neurologic + imunodepre + obesidade + 
+              pneumopati + cardiopati + renal + asma, data=dados_covid, x=T)
+summary(modelo2)
+
+forest_model(modelo2, covariates = c("diabetes", "hematologi", "down", "hepatica", "neurologic", "imunodepre", "obesidade",  
+                                     "pneumopati", "cardiopati", "renal", "asma"))
+
+
+tab_model(modelo2)
+
+tabela3 <- cox_as_data_frame(summary(modelo2))
+tabela4 <- tabela3[,-1]
+
+write.csv(tabela2,"tabela2.csv")
+
+
+# MODELO 3: UTI, SUPORTE VENTILATÓRIO E SEMANA EPIDEMIOLÓGICA:
+dados_covid$suport <- as.factor(dados_covid$suport)
+dados_covid$uti <- as.factor(dados_covid$uti)
+dados_covid$ciclos <- as.factor(dados_covid$ciclos)
+
+modelo3 = coxph(Surv(tempo_prim_sin_obito1,status_obito)~SG_UF_NOT + escol + idade + sexo +
+                  diabetes + hematologi + hepatica + neurologic + imunodepre + obesidade + 
+                  pneumopati + renal + asma +
+                  suport + uti + ciclos, data=dados_covid, x=T)
+summary(modelo3)
+forest_model(modelo3, covariates = c("suport", "uti", "ciclos"))
+                                     
+tab_model(modelo3)
+
+#require(survivalAnalysis)
+tabela <- cox_as_data_frame(summary(modelo1), summary(modelo2),summary(modelo3))
+tabela2 <- tabela[,-1]
+
+write.csv(tabela2,"tabela2.csv")
+
+# MODELO FINAL:
+modelo_final = coxph(Surv(tempo_prim_sin_obito1,status_obito)~factor(SG_UF_NOT) + factor(CS_ESCOL_N) + factor(idade_cat) + factor(sexo_cat) +
+                  factor(diabetes_cat) + factor(hematologi_cat) + factor(hepatica_cat) + factor(neurologic_cat) + factor(imunodepre_cat) + factor(obesidade_cat) + 
+                  factor(pneumopati_cat) + factor(renal_cat) + factor(asma_cat) + factor(gestant_cat) +
+                  factor(SUPORT_VEN) + factor(UTI), data=dados_covid, x=T)
+summary(modelo_final)
+
+#DESCRITIVAS:
+#Estado:
+tabela_estado <- table(dados_covid$SG_UF_NOT)
+tabela_estado_prop <- round((prop.table(tabela_estado))*100, 2)
+
+tabela <- paste0(tabela_estado, " (", tabela_estado_prop, ")")
+write.table(tabela, file="clipboard-16384", sep="\t", col.names=NA, dec = ".")
+
+nomes <- names(tabela_estado)
+write.table(nomes, file="clipboard-16384", sep="\t", col.names=NA, dec = ".")
+
+#Escolaridade:
+tabela_escol <- table(dados_covid$escol_cat)
+tabela_escol_prop <- round((prop.table(tabela_escol))*100, 2)
+sum(is.na(dados_covid$escol))
+
+tabela <- paste0(tabela_escol, " (", tabela_escol_prop, ")")
+write.table(tabela, file="clipboard-16384", sep="\t", col.names=NA, dec = ".")
+
+#Raça/cor:
+tabela_raca <- table(dados_covid$raca_cat)
+tabela_raca_prop <- round((prop.table(tabela_raca))*100, 2)
+sum(is.na(dados_covid$raca))
+
+tabela <- paste0(tabela_raca, " (", tabela_raca_prop, ")")
+write.table(tabela, file="clipboard-16384", sep="\t", col.names=NA, dec = ".")
+
+#Sexo:
+tabela_sexo <- table(dados_covid$sexo_cat)
+tabela_sexo_prop <- round((prop.table(tabela_sexo))*100, 2)
+sum(is.na(dados_covid$sexo))
+
+sexo_gest <- paste0(tabela_sexo, " (", tabela_sexo_prop, ")")
+
+#Diabetes Mellitus: #1 = sim; 2 = não; 9 = ignorado
+tabela_diabete <- table(dados_covid$diabetes_cat)
+tabela_diabete_prop <- round((prop.table(tabela_diabete))*100, 2)
+sum(is.na(dados_covid$diabetes)) 
+
+diabetes <- paste0(tabela_diabete[2], " (", tabela_diabete_prop[2], ")")
+
+#Obesidade grave: #1 = sim; 2 = não; 9 = ignorado
+tabela_obesidade <- table(dados_covid$obesidade_cat)
+tabela_obesidade_prop <- round((prop.table(tabela_obesidade))*100, 2)
+sum(is.na(dados_covid$obesidade))
+
+obesidade <- paste0(tabela_obesidade[2], " (", tabela_obesidade_prop[2], ")")
+
+#Doença respiratória: #1 = sim; 2 = não; 9 = ignorado
+tabela_resp <- table(dados_covid$pneumopati_cat)
+tabela_resp_prop <- round((prop.table(tabela_resp))*100, 2)
+sum(is.na(dados_covid$pneumopati)) 
+
+resp <- paste0(tabela_resp[2], " (", tabela_resp_prop[2], ")")
+
+#Doença cardiovascular: #1 = sim; 2 = não; 9 = ignorado
+tabela_cardio <- table(dados_covid$cardiopati_cat)
+tabela_cardio_prop <- round((prop.table(tabela_cardio))*100, 2)
+sum(is.na(dados_covid$cardiopati))
+
+cardio <- paste0(tabela_cardio[2], " (", tabela_cardio_prop[2], ")")
+
+#Doença hematológica crônica: #1 = sim; 2 = não; 9 = ignorado
+tabela_hemat <- table(dados_covid$hematologi_cat)
+tabela_hemat_prop <- round((prop.table(tabela_hemat))*100, 2)
+sum(is.na(dados_covid$hematologi))
+
+hemat <- paste0(tabela_hemat[2], " (", tabela_hemat_prop[2], ")")
+
+#Síndrome de Down: #1 = sim; 2 = não; 9 = ignorado
+tabela_down <- table(dados_covid$down_cat)
+tabela_down_prop <- round((prop.table(tabela_down))*100, 2)
+sum(is.na(dados_covid$down))
+
+down <- paste0(tabela_down[2], " (", tabela_down_prop[2], ")")
+
+#Doença hepáica crônica: #1 = sim; 2 = não; 9 = ignorado
+tabela_hepat <- table(dados_covid$hepatica_cat)
+tabela_hepat_prop <- round((prop.table(tabela_hepat))*100, 2)
+sum(is.na(dados_covid$hepatica))
+
+hepat <- paste0(tabela_hepat[2], " (", tabela_hepat_prop[2], ")")
+
+#Asma: #1 = sim; 2 = não; 9 = ignorado
+tabela_asma <- table(dados_covid$asma_cat)
+tabela_asma_prop <- round((prop.table(tabela_asma))*100, 2)
+sum(is.na(dados_covid$asma_cat))
+
+asma <- paste0(tabela_asma[2], " (", tabela_asma_prop[2], ")")
+
+#Distúrbios neurológicos: #1 = sim; 2 = não; 9 = ignorado
+tabela_neuro <- table(dados_covid$neurologic_cat)
+tabela_neuro_prop <- round((prop.table(tabela_neuro))*100, 2)
+sum(is.na(dados_covid$neurologic_cat))
+
+neuro <- paste0(tabela_neuro[2], " (", tabela_neuro_prop[2], ")")
+
+#Imunocomprometimento (tumor sólido, malignidade hematológica, doenças reumatóides ou transplante de órgãos): #1 = sim; 2 = não; 9 = ignorado
+tabela_imuno <- table(dados_covid$imunodepre_cat)
+tabela_imuno_prop <- round((prop.table(tabela_imuno))*100, 2)
+sum(is.na(dados_covid$imunodepre_cat))
+
+imuno <- paste0(tabela_imuno[2], " (", tabela_imuno_prop[2], ")")
+
+#Doença renal crônica: #1 = sim; 2 = não; 9 = ignorado
+tabela_renal <- table(dados_covid$renal_cat)
+tabela_renal_prop <- round((prop.table(tabela_renal))*100, 2)
+sum(is.na(dados_covid$renal_cat)) 
+
+renal <- paste0(tabela_renal[2], " (", tabela_renal_prop[2], ")")
+
+#Suporte ventilatório: #1 = sim; 2 = não; 9 = ignorado
+tabela_vmi <- table(dados_covid$suport_cat)
+tabela_vmi_prop <- round((prop.table(tabela_vmi))*100, 2)
+sum(is.na(dados_covid$suport_cat)) 
+
+vmi <- paste0(tabela_vmi, " (", tabela_vmi_prop, ")")
+
+#UTI: #1 = sim; 2 = não; 9 = ignorado
+tabela_uti <- table(dados_covid$uti_cat)
+tabela_uti_prop <- round((prop.table(tabela_uti))*100, 2)
+sum(is.na(dados_covid$uti_cat))
+
+uti <- paste0(tabela_uti, " (", tabela_uti_prop, ")")
+
+#Idade:
+hist(dados_covid$NU_IDADE_N)
+mean(dados_covid$NU_IDADE_N, na.rm = T)
+sd(dados_covid$NU_IDADE_N, na.rm = T)
+
+tabela_idade <- table(dados_covid$idade_cat)
+tabela_idade_prop <- round((prop.table(tabela_idade))*100, 2)
+sum(is.na(dados_covid$idade_cat))
+
+tabela <- paste0(tabela_idade, " (", tabela_idade_prop, ")")
+write.table(tabela, file="clipboard-16384", sep="\t", col.names=NA, dec = ".")
+
+# Semana epidemiológica:
+tabela_sempri <- table(dados_covid$ciclos)
+tabela_sempri_prop <- round((prop.table(tabela_sempri))*100, 2)
+sum(is.na(dados_covid$ciclos))
+
+tabela <- paste0(tabela_sempri, " (", tabela_sempri_prop, ")")
+write.table(tabela, file="clipboard-16384", sep="\t", col.names=NA, dec = ".")
+
+# Tempo até óbito:
+hist(dados_covid$tempo_prim_sin_obito1)
+summary(dados_covid$tempo_prim_sin_obito1)
